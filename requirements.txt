@@ -1,0 +1,6 @@
+nltk
+json_lines
+numpy
+wheel
+setuptools==39.1.0
+tensorflow==1.11.0
