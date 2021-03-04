@@ -1,3 +1,8 @@
+BERT/* 
+
+biobert_v1.1_pubmed.tar.gz
+biobert_v1.1_pubmed/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
