@@ -7,11 +7,10 @@ Medical University of Vienna
 import sys, getopt
 import nltk
 nltk.download('punkt')
-import json
 import json_lines
-import random
 import math
 from numpy import double
+import subprocess
 
 #-------------------- CLASSES
 
@@ -35,8 +34,12 @@ class Sentence:
         eucl_dist = 0
         i = 0
         for weight in self.representation:
-            eucl_dist += (weight - second_vector[i]) ** 2
-            i += 1
+            if i<len(second_vector):
+                eucl_dist += (weight - second_vector[i]) ** 2
+                i += 1
+            else:
+                eucl_dist += weight ** 2
+
         
         eucl_dist = math.sqrt(eucl_dist)
         return eucl_dist;
@@ -206,7 +209,7 @@ def main(argv):
     
     print('---------- Preprocessing started ----------\n')
     
-    opened_file = open(input_address, encoding = "utf8")
+    opened_file = open(input_address, 'r', encoding = "utf8")
     print("-----File opened-----")
     
     input_text = opened_file.read()
@@ -219,15 +222,16 @@ def main(argv):
     sentence_num = 1
     
     for sentence in input_sentences:
-        tokenized_sentence = nltk.word_tokenize(sentence)
-        
-        if sentence_num > 1:
-            sentence_split_text += '\n'
-            preprocessed_text += '\n'
-        
-        sentence_split_text += sentence
-        preprocessed_text += str(tokenized_sentence)
-        sentence_num += 1
+        if len(sentence) > 0:
+            tokenized_sentence = nltk.word_tokenize(sentence)
+
+            if sentence_num > 1:
+                sentence_split_text += '\n'
+                preprocessed_text += '\n'
+
+            sentence_split_text += sentence
+            preprocessed_text += str(tokenized_sentence)
+            sentence_num += 1
         
     temp_file_address = 'TEMP/temp_input.txt'
     temp_file_token_address = 'TEMP/temp_input_token.txt'
@@ -240,13 +244,11 @@ def main(argv):
     
     #-------------------- Feature extraction --------------------
     print("-----Feature extraction-----")
-    import subprocess
-    #feature_eaxtraction_script = "python BERT/extract_features.py --input_file=TEMP/temp_input.txt --output_file=TEMP/temp_features.jsonl --vocab_file=BERT/vocab.txt --bert_config_file=BERT/bert_config.json --init_checkpoint=BERT/bert_model.ckpt --layers=-1 --max_seq_length=128 --batch_size=8"
+
     feature_eaxtraction_script = "python BERT/extract_features.py --input_file=TEMP/temp_input.txt --output_file=TEMP/temp_features.jsonl --vocab_file=BERT/vocab.txt --bert_config_file=BERT/bert_config.json --init_checkpoint=BERT/model.ckpt-1000000 --layers=-1 --max_seq_length=128 --batch_size=8"
 
     subprocess.call(feature_eaxtraction_script, shell=True)
-    #exec(open("extract_features.py --input_file=Input.txt --output_file=Example100.jsonl --vocab_file=vocab.txt --bert_config_file=bert_config.json --init_checkpoint=bert_model.ckpt --layers=-1 --max_seq_length=128 --batch_size=8").read())
-    
+
     
     #-------------------- Clustering --------------------
     
@@ -254,9 +256,6 @@ def main(argv):
     
     input_address_text = 'TEMP/temp_input.txt'
     input_address_feature = 'TEMP/temp_features.jsonl'
-    output_address = 'OUTPUT/' + output_file
-
-
     input_file = open(input_address_text)
     print("-----File opened-----")
 
@@ -268,15 +267,16 @@ def main(argv):
     sentence_list = []
     sentence_num = 0
 
+    #Initialize sentences
     for sentence in input_sentences:
-        sentence_num += 1
-        temp_sentence = Sentence(sentence_num, sentence)
-        sentence_list.append(temp_sentence)
-
-    #--------------------
+        if len(sentence) > 0:
+            sentence_num += 1
+            temp_sentence = Sentence(sentence_num, sentence)
+            sentence_list.append(temp_sentence)
 
     sentence_num = 0
     with open(input_address_feature) as input_file:
+        print('sentences=', len(sentence_list))
         for line in json_lines.reader(input_file):
             feature_set = line['features']
         
@@ -293,14 +293,16 @@ def main(argv):
                     sentence_list[sentence_num].feature_list.append(temp_feature)
                             
             sentence_num += 1
+        print('lines=', sentence_num)
         
     print('-----------------------------------------------')
 
     #-------------------- Compute a representation for every sentence
 
     for sentence in sentence_list:
-        for weight in sentence.feature_list[0].weight_list:
-            sentence.representation.append(0.0)
+        if len(sentence.feature_list)>0:
+            for weight in sentence.feature_list[0].weight_list:
+                sentence.representation.append(0.0)
         
         for feature in sentence.feature_list:
             i = 0
@@ -354,7 +356,6 @@ def main(argv):
                     temp_distance = 0
                     for index1 in clusters[i].members:
                         for index2 in clusters[j].members:
-                                    
                             temp_distance += sentence_list[index1].eucl_distance(sentence_list[index2].representation)
                             denominator += 1
                                     

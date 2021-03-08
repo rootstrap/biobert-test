@@ -1,4 +1,9 @@
+.idea/
+
 BERT/* 
+INPUT
+OUTPUT
+TEMP
 
 biobert_v1.1_pubmed.tar.gz
 biobert_v1.1_pubmed/
