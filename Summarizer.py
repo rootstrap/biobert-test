@@ -11,14 +11,38 @@ import re
 import utils
 
 
+def generate_html(indexes, sentences, output_address):
+    final_summary = '<!DOCTYPE html><html><body>'
+    for index in range(0, len(sentences)):
+        if index in indexes:
+            print('\x1b[6;30;42m' + sentences[index].sentence_text + '\x1b[0m')
+            final_summary += '<p><mark>' + sentences[index].sentence_text + '</mark></p>'
+        else:
+            print(sentences[index].sentence_text)
+            final_summary += '<p>' + sentences[index].sentence_text + '</p>'
+    final_summary += '</body></html>'
+    output_file_text = open(output_address, 'w')
+    output_file_text.write(final_summary)
+    output_file_text.close()
+
+
+def generte_final_summary(indexes, sentences, output_address):
+    final_summary = ''
+    i = 0
+    for index in indexes:
+        if i > 0:
+            final_summary += ' '
+        final_summary += sentences[index].sentence_text
+        i += 1
+    output_file_text = open(output_address, 'w')
+    output_file_text.write(final_summary)
+    output_file_text.close()
+
+
 def produce_summary(compression_rate, sentence_list, clusters, output_address):
     summary_size = math.ceil(len(sentence_list) * compression_rate) + 1
-    print('\nSummary size: ', summary_size)
-
-    i = 0
     for cluster in clusters:
         cluster.summary_members = round(summary_size * (len(cluster.members) / len(sentence_list)))
-        i += 1
 
     # --------------------- Sentence selection
 
@@ -56,41 +80,11 @@ def produce_summary(compression_rate, sentence_list, clusters, output_address):
 
     summary_index = []
     for cluster in clusters:
-        for i in range(0, cluster.summary_members):
-            summary_index.append(cluster.members[i])
+        summary_index.extend(cluster.members[:cluster.summary_members])
 
     summary_index.sort()
-    print('---------- Sorted selected sentences --------')
-    for index in summary_index:
-        print(index)
-
-    # ----------------------- Producing final summary
-    final_summary = ''
-    i = 0
-    for index in summary_index:
-        print(sentence_list[index].sentence_text)
-        if i > 0:
-            final_summary += ' '
-        final_summary += sentence_list[index].sentence_text
-        i += 1
-
-    '''
-    final_output = '<html>'
-    final_output += '\n<head>'
-    final_output += '\n</head>'
-    final_output += '\n<body bgcolor="white">'
-    final_output += '\n<a name="1">[1]</a> <a href="#1" id=1>'
-    final_output += final_summary
-    final_output += '\n</a>'
-    final_output += '\n</body>'
-    final_output += '\n</html>'
-    '''
-
-    output_file_text = open(output_address, 'w')
-    output_file_text.write(final_summary)
-    output_file_text.close()
-
-    return
+    generte_final_summary(summary_index, sentence_list, output_address)
+    generate_html(summary_index, sentence_list, output_address.split('.')[0] + '.html')
 
 
 def clean_content(filename):
@@ -179,7 +173,7 @@ def get_sentences_representation(filename):
     return sentence_list
 
 
-def clustering(filename, number_of_clusters, compression_rate, output_file):
+def clustering(filename, number_of_clusters):
     print('---------- Clustering started ----------')
     sentence_list = get_sentences_representation(filename)
     clusters = []
@@ -228,17 +222,15 @@ def clustering(filename, number_of_clusters, compression_rate, output_file):
         iteration += 1
         if len(clusters) <= number_of_clusters:
             end_of_clustering = True
-            output_address = 'OUTPUT/' + output_file
-            produce_summary(compression_rate, sentence_list, clusters, output_address)
-
-        # -------------------- End of clustering algorithm
+    return clusters, sentence_list
 
 
 def summarize(input_file, number_of_clusters, compression_rate, output_file):
     preprocessing(input_file)
     filename = input_file.split('.')[0]
     feature_extraction(filename)
-    clustering(filename, number_of_clusters, compression_rate, output_file)
+    clusters, sentence_list = clustering(filename, number_of_clusters)
+    produce_summary(compression_rate, sentence_list, clusters, 'OUTPUT/' + output_file)
 
 
 def main(argv):
@@ -274,7 +266,6 @@ def main(argv):
     print("Number of clusters is:", number_of_clusters)
 
     summarize(input_file, number_of_clusters, compression_rate, output_file)
-    print("\n")
     print("---------- Finished ----------")
 
 
