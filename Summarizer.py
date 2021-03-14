@@ -9,43 +9,10 @@ import subprocess
 import xml.etree.ElementTree as ET
 import re
 import utils
+import clustering
 
 
-def generate_html(indexes, sentences, output_address):
-    final_summary = '<!DOCTYPE html><html><body>'
-    for index in range(0, len(sentences)):
-        if index in indexes:
-            print('\x1b[6;30;42m' + sentences[index].sentence_text + '\x1b[0m')
-            final_summary += '<p><mark>' + sentences[index].sentence_text + '</mark></p>'
-        else:
-            print(sentences[index].sentence_text)
-            final_summary += '<p>' + sentences[index].sentence_text + '</p>'
-    final_summary += '</body></html>'
-    output_file_text = open(output_address, 'w')
-    output_file_text.write(final_summary)
-    output_file_text.close()
-
-
-def generte_final_summary(indexes, sentences, output_address):
-    final_summary = ''
-    i = 0
-    for index in indexes:
-        if i > 0:
-            final_summary += ' '
-        final_summary += sentences[index].sentence_text
-        i += 1
-    output_file_text = open(output_address, 'w')
-    output_file_text.write(final_summary)
-    output_file_text.close()
-
-
-def produce_summary(compression_rate, sentence_list, clusters, output_address):
-    summary_size = math.ceil(len(sentence_list) * compression_rate) + 1
-    for cluster in clusters:
-        cluster.summary_members = round(summary_size * (len(cluster.members) / len(sentence_list)))
-
-    # --------------------- Sentence selection
-
+def calculate_avg_dist(clusters, sentence_list):
     # For every member of each cluster calculate the average distance to other members within the same cluster
     for cluster in clusters:
         for sentence_index in cluster.members:
@@ -55,36 +22,13 @@ def produce_summary(compression_rate, sentence_list, clusters, output_address):
             for other_member in cluster.members:
                 if sentence_index != other_member:
                     temp_avg_distance += np.linalg.norm(np.array(sentence_list[sentence_index].representation) \
-                                                    - np.array(sentence_list[other_member].representation))
+                                                        - np.array(sentence_list[other_member].representation))
                     denominator += 1
 
             if denominator != 0:
                 temp_avg_distance /= denominator
             sentence_list[sentence_index].avg_distance = temp_avg_distance
-
-    # ------------------------------------------------------------------------------------------------
-    # ------------------------------------------------------------------------------------------------
-
-    # Sort members of each cluster
-    for cluster in clusters:
-        # -----------------Bubble sort
-        for i in range(0, len(cluster.members)):
-            for j in range(i + 1, len(cluster.members)):
-                if sentence_list[cluster.members[i]].avg_distance > sentence_list[cluster.members[j]].avg_distance:
-                    temp_index = cluster.members[i]
-                    cluster.members[i] = cluster.members[j]
-                    cluster.members[j] = temp_index
-
-    # ------------------------------------------------------------------------------------------------
-    # ------------------------------------------------------------------------------------------------
-
-    summary_index = []
-    for cluster in clusters:
-        summary_index.extend(cluster.members[:cluster.summary_members])
-
-    summary_index.sort()
-    generte_final_summary(summary_index, sentence_list, output_address)
-    generate_html(summary_index, sentence_list, output_address.split('.')[0] + '.html')
+    return clusters, sentence_list
 
 
 def clean_content(filename):
@@ -173,7 +117,7 @@ def get_sentences_representation(filename):
     return sentence_list
 
 
-def clustering(filename, number_of_clusters):
+def get_clusters(filename, number_of_clusters):
     print('---------- Clustering started ----------')
     sentence_list = get_sentences_representation(filename)
     clusters = []
@@ -222,15 +166,72 @@ def clustering(filename, number_of_clusters):
         iteration += 1
         if len(clusters) <= number_of_clusters:
             end_of_clustering = True
-    return clusters, sentence_list
+
+    return calculate_avg_dist(clusters, sentence_list)
 
 
-def summarize(input_file, number_of_clusters, compression_rate, output_file):
+def produce_summary(compression_rate, sentence_list, n_clusters):
+    summary_size = math.ceil(len(sentence_list) * compression_rate) + 1
+    clusters = []
+    # populate clusters
+    for i in range(0, n_clusters):
+        cluster = utils.Cluster(i)
+        cluster.members = list(filter(lambda s: s.cluster_index == i, sentence_list))
+        cluster.summary_members = round(summary_size * (len(cluster.members) / len(sentence_list)))
+        cluster.members = sorted(cluster.members, key=lambda x: x.avg_distance, reverse=False)
+        clusters.append(cluster)
+
+    summary_index = []
+    for cluster in clusters:
+        summary_index.extend(cluster.members[:cluster.summary_members])
+
+    summary_index = sorted(summary_index, key=lambda x: x.avg_distance, reverse=False)
+    summary_index = list(map(lambda x: x.sentence_number, summary_index))
+    summary_index = sorted(summary_index)
+    return summary_index
+
+
+def generate_html(indexes, sentences, output_address):
+    final_summary = '<!DOCTYPE html><html><body>'
+    for index in range(0, len(sentences)):
+        if index in indexes:
+            print('\x1b[6;30;42m' + sentences[index].sentence_text + '\x1b[0m')
+            final_summary += '<p><mark>' + sentences[index].sentence_text + '</mark></p>'
+        else:
+            print(sentences[index].sentence_text)
+            final_summary += '<p>' + sentences[index].sentence_text + '</p>'
+    final_summary += '</body></html>'
+    output_file_text = open(output_address, 'w')
+    output_file_text.write(final_summary)
+    output_file_text.close()
+
+
+def generte_final_summary(indexes, sentences, output_address):
+    final_summary = ''
+    i = 0
+    for index in indexes:
+        if i > 0:
+            final_summary += ' '
+        final_summary += sentences[index].sentence_text
+        i += 1
+    output_file_text = open(output_address, 'w')
+    output_file_text.write(final_summary)
+    output_file_text.close()
+
+
+def summarize(input_file, compression_rate, output_file):
     preprocessing(input_file)
     filename = input_file.split('.')[0]
     feature_extraction(filename)
-    clusters, sentence_list = clustering(filename, number_of_clusters)
-    produce_summary(compression_rate, sentence_list, clusters, 'OUTPUT/' + output_file)
+    sentence_list = get_sentences_representation(filename)
+    representation = list(map(lambda sentence: sentence.representation, sentence_list))
+
+    n_clusters = clustering.elbow_test(representation, n_init=10, max_clusters=20, max_iter=10000)
+    sentence_list = clustering.clustering_kmeans(sentence_list, n_clusters)
+    # clusters, sentence_list = clustering(filename, number_of_clusters)
+    summary_index = produce_summary(compression_rate, sentence_list, n_clusters)
+    generte_final_summary(summary_index, sentence_list, 'OUTPUT/' + output_file)
+    generate_html(summary_index, sentence_list, 'OUTPUT/' + output_file.split('.')[0] + '.html')
 
 
 def main(argv):
@@ -265,7 +266,7 @@ def main(argv):
     print("Compression rate is:", compression_rate)
     print("Number of clusters is:", number_of_clusters)
 
-    summarize(input_file, number_of_clusters, compression_rate, output_file)
+    summarize(input_file, compression_rate, output_file)
     print("---------- Finished ----------")
 
 
