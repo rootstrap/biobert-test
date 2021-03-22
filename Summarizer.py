@@ -12,25 +12,6 @@ import utils
 import clustering
 
 
-def calculate_avg_dist(clusters, sentence_list):
-    # For every member of each cluster calculate the average distance to other members within the same cluster
-    for cluster in clusters:
-        for sentence_index in cluster.members:
-            temp_avg_distance = 0
-            denominator = 0
-
-            for other_member in cluster.members:
-                if sentence_index != other_member:
-                    temp_avg_distance += np.linalg.norm(np.array(sentence_list[sentence_index].representation) \
-                                                        - np.array(sentence_list[other_member].representation))
-                    denominator += 1
-
-            if denominator != 0:
-                temp_avg_distance /= denominator
-            sentence_list[sentence_index].avg_distance = temp_avg_distance
-    return clusters, sentence_list
-
-
 def clean_content(filename):
     tree = ET.parse(filename)
     root = tree.getroot()
@@ -43,6 +24,14 @@ def clean_content(filename):
     content = re.sub(r'\*+', ' ', content)
     content = " ".join(content.split())
     return content
+
+
+def is_itemize(sentence):
+    if len(sentence.feature_list) == 1 and re.match('.|-', sentence.feature_list[0].token):
+        return True
+    if len(sentence.feature_list) == 2 and re.match('\d+|\(\d+\)', sentence.feature_list[0].token) and re.match('.|-', sentence.feature_list[1].token):
+        return True
+    return False
 
 
 def preprocessing(input_file):
@@ -117,75 +106,18 @@ def get_sentences_representation(filename):
     return sentence_list
 
 
-def get_clusters(filename, number_of_clusters):
-    print('---------- Clustering started ----------')
-    sentence_list = get_sentences_representation(filename)
-    clusters = []
-
-    for i in range(0, len(sentence_list)):
-        temp_cluster = utils.Cluster(i + 1)
-        temp_cluster.members.append(i)
-        clusters.append(temp_cluster)
-
-    end_of_clustering = False
-
-    iteration = 1
-    while not end_of_clustering:
-        nearest_distance = 10000000000
-        nearest_cluster1 = -1
-        nearest_cluster2 = -1
-
-        for i in range(0, len(clusters)):
-            for j in range(0, len(clusters)):
-
-                if i < j:
-
-                    # ----------Compute the distance between two clusters
-                    denominator = 0
-                    temp_distance = 0
-                    for index1 in clusters[i].members:
-                        for index2 in clusters[j].members:
-                            temp_distance += np.linalg.norm(np.array(sentence_list[index1].representation) \
-                                                            - np.array(sentence_list[index2].representation))
-                            denominator += 1
-
-                    if denominator != 0:
-                        temp_distance /= denominator
-
-                    if temp_distance < nearest_distance:
-                        nearest_distance = temp_distance
-                        nearest_cluster1 = i
-                        nearest_cluster2 = j
-
-        # ----------Merge two nearest clusters
-        clusters[nearest_cluster1].members = clusters[nearest_cluster1].members + clusters[nearest_cluster2].members
-        clusters.remove(clusters[nearest_cluster2])
-
-        print('Number of clusters: ', str(len(clusters)), 'Iteration:', iteration)
-
-        iteration += 1
-        if len(clusters) <= number_of_clusters:
-            end_of_clustering = True
-
-    return calculate_avg_dist(clusters, sentence_list)
-
-
 def produce_summary(compression_rate, sentence_list, n_clusters):
-    summary_size = math.ceil(len(sentence_list) * compression_rate) + 1
-    clusters = []
+    summary_index = []
     # populate clusters
     for i in range(0, n_clusters):
         cluster = utils.Cluster(i)
         cluster.members = list(filter(lambda s: s.cluster_index == i, sentence_list))
-        cluster.summary_members = round(summary_size * (len(cluster.members) / len(sentence_list)))
+        cluster.summary_members = math.ceil(len(cluster.members) * compression_rate)
+        if cluster.summary_members == 0:
+            cluster.summary_members = 1
         cluster.members = sorted(cluster.members, key=lambda x: x.avg_distance, reverse=False)
-        clusters.append(cluster)
-
-    summary_index = []
-    for cluster in clusters:
         summary_index.extend(cluster.members[:cluster.summary_members])
 
-    summary_index = sorted(summary_index, key=lambda x: x.avg_distance, reverse=False)
     summary_index = list(map(lambda x: x.sentence_number, summary_index))
     summary_index = sorted(summary_index)
     return summary_index
@@ -223,29 +155,27 @@ def summarize(input_file, compression_rate, output_file):
     preprocessing(input_file)
     filename = input_file.split('.')[0]
     feature_extraction(filename)
-    sentence_list = get_sentences_representation(filename)
+    original_sentence_list = get_sentences_representation(filename)
+    sentence_list = list(filter(lambda x: is_itemize(x) == False, original_sentence_list))
     representation = list(map(lambda sentence: sentence.representation, sentence_list))
-
     n_clusters = clustering.elbow_test(representation, n_init=10, max_clusters=20, max_iter=10000)
     sentence_list = clustering.clustering_kmeans(sentence_list, n_clusters)
-    # clusters, sentence_list = clustering(filename, number_of_clusters)
     summary_index = produce_summary(compression_rate, sentence_list, n_clusters)
-    generte_final_summary(summary_index, sentence_list, 'OUTPUT/' + output_file)
-    generate_html(summary_index, sentence_list, 'OUTPUT/' + output_file.split('.')[0] + '.html')
+    generte_final_summary(summary_index, original_sentence_list, 'OUTPUT/' + output_file)
+    generate_html(summary_index, original_sentence_list, 'OUTPUT/' + output_file.split('.')[0] + '.html')
 
 
 def main(argv):
     input_file = ''
     output_file = ''
-    compression_rate = 0.3
-    number_of_clusters = 4
+    compression_rate = 0.5
 
     try:
         opts, args = getopt.getopt(argv, "hi:o:c:k:",
-                                   ["inputfile=", "outputfile=", "compression_rate=", "number_of_clusters="])
+                                   ["inputfile=", "outputfile=", "compression_rate="])
 
     except getopt.GetoptError:
-        print("Summarizer.py -i <InputFile> -o <OutputFile> -c <CompressionRate> -k <NumberOfClusters>")
+        print("Summarizer.py -i <InputFile> -o <OutputFile> -c <CompressionRate>")
         sys.exit(2)
 
     for opt, arg in opts:
@@ -258,13 +188,10 @@ def main(argv):
             output_file = arg
         elif opt in ("-c", "--compression_rate"):
             compression_rate = np.double(arg)
-        elif opt in ("-k", "--number_of_clusters"):
-            number_of_clusters = int(arg)
 
     print("Input file is:", input_file)
     print("Output file is:", output_file)
     print("Compression rate is:", compression_rate)
-    print("Number of clusters is:", number_of_clusters)
 
     summarize(input_file, compression_rate, output_file)
     print("---------- Finished ----------")

@@ -39,7 +39,7 @@ def clustering_kmeans(sentences, n_clusters):
     representation = list(map(lambda sentence: sentence.representation, sentences))
     kmeans = KMeans(n_clusters, init='k-means++', random_state=42)
     y_kmeans = kmeans.fit_predict(representation)
-    clusters = []
+
     centers = kmeans.cluster_centers_
 
     for j in range(len(y_kmeans)):
